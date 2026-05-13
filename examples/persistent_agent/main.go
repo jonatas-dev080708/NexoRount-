@@ -6,10 +6,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/autonome-ecosystem/framework/pkg/agent"
-	"github.com/autonome-ecosystem/framework/pkg/engine"
-	"github.com/autonome-ecosystem/framework/pkg/events"
-	"github.com/autonome-ecosystem/framework/pkg/memory"
+	"github.com/jonatas-dev080708/NexoRount/pkg/agent"
+	"github.com/jonatas-dev080708/NexoRount/pkg/engine"
+	"github.com/jonatas-dev080708/NexoRount/pkg/events"
+	"github.com/jonatas-dev080708/NexoRount/pkg/memory"
 )
 
 func main() {
