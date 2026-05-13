@@ -1,0 +1,30 @@
+# Binários de compilação Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Pasta de banco de dados local (estados dos agentes)
+db/
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+
+# Dependências (raramente commitadas em bibliotecas Go)
+vendor/
+
+# Arquivos de IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Arquivos temporários do sistema
+.DS_Store
+Thumbs.db
