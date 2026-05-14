@@ -2,30 +2,50 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jonatas-dev080708/NexoRount-/pkg/events"
 	"github.com/jonatas-dev080708/NexoRount-/pkg/memory"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/observability"
 	"github.com/jonatas-dev080708/NexoRount-/pkg/provider"
 )
 
 // HandlerFunc define a assinatura para processar eventos. Agora recebe o agente como primeiro parâmetro.
 type HandlerFunc func(a *BaseAgent, ctx context.Context, e events.Event)
 
+type State string
+
+const (
+	StateSleeping   State = "sleeping"
+	StateThinking   State = "thinking"
+	StateWaiting    State = "waiting"
+	StateBlocked    State = "blocked"
+	StateFailed     State = "failed"
+	StateRecovering State = "recovering"
+)
+
 type BaseAgent struct {
-	id       string
-	category string
-	handlers map[events.Type]HandlerFunc
-	mu       sync.RWMutex
-	nexus    events.Bus
-	llm      provider.LLMProvider
-	memory   memory.Store
-	tools    *ToolManager
+	id           string
+	category     string
+	state        State
+	handlers     map[events.Type]HandlerFunc
+	mu           sync.RWMutex
+	nexus        events.Bus
+	llm          provider.LLMProvider
+	memory       *memory.Hierarchy
+	tools        *ToolManager
 	instructions string
 	middlewares  []ThinkMiddleware
 	preFetchers  map[events.Type][]PreFetcherFunc
+	journal      *observability.Journal
+	// Configurações de Geração
+	temperature   float32
+	maxTokens     int
+	topP          float32
+	stopSequences []string
 }
 
 type ThinkMiddleware func(a *BaseAgent, next func(context.Context, string) (string, error)) func(context.Context, string) (string, error)
@@ -33,11 +53,33 @@ type PreFetcherFunc func(a *BaseAgent, ctx context.Context, e events.Event) (str
 
 func New(id, category string) *BaseAgent {
 	return &BaseAgent{
-		id:       id,
-		category: category,
-		handlers: make(map[events.Type]HandlerFunc),
-		tools:    NewToolManager(),
+		id:          id,
+		category:    category,
+		state:       StateSleeping,
+		handlers:    make(map[events.Type]HandlerFunc),
+		tools:       NewToolManager(),
 		preFetchers: make(map[events.Type][]PreFetcherFunc),
+	}
+}
+
+func (a *BaseAgent) Status() State {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.state
+}
+
+func (a *BaseAgent) setState(s State) {
+	a.mu.Lock()
+	oldState := a.state
+	a.state = s
+	a.mu.Unlock()
+
+	if oldState != s {
+		a.Emit("AGENT_STATE_CHANGED", map[string]string{
+			"agent_id":  a.id,
+			"old_state": string(oldState),
+			"new_state": string(s),
+		})
 	}
 }
 
@@ -54,6 +96,9 @@ func (a *BaseAgent) On(eventType events.Type, handler HandlerFunc) *BaseAgent {
 // Run implementa a lógica de execução concorrente robusta
 func (a *BaseAgent) Run(ctx context.Context, nexus events.Bus) error {
 	a.nexus = nexus
+	// Tenta capturar o Journal se o Nexus for um Engine (pattern common em Go)
+	// Para simplicidade, vamos assumir que o usuário pode injetar o journal ou ele vem via Nexus
+	// Aqui vamos apenas preparar o agente para receber o journal no Start
 	
 	var wg sync.WaitGroup
 	
@@ -89,8 +134,19 @@ func (a *BaseAgent) safeExecute(ctx context.Context, handler HandlerFunc, ev eve
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("🚨 [ERRO CRÍTICO] Pânico no Agente [%s]: %v\n", a.id, r)
+			a.setState(StateFailed)
 		}
 	}()
+
+	a.setState(StateThinking)
+	defer a.setState(StateSleeping)
+
+	// Inicia um Span para a execução do Handler se houver journal
+	var spanID string
+	if a.journal != nil {
+		spanID = a.journal.StartSpan(ev.TraceID, "handler_"+string(ev.Type), a.id)
+		defer a.journal.EndSpan(spanID)
+	}
 
 	// Executa Pre-fetchers em paralelo se existirem para este tipo de evento
 	a.mu.RLock()
@@ -123,39 +179,96 @@ func (a *BaseAgent) safeExecute(ctx context.Context, handler HandlerFunc, ev eve
 // Emit facilita o envio de eventos pelo próprio agente
 func (a *BaseAgent) Emit(eventType events.Type, payload interface{}) {
 	if a.nexus != nil {
+		// Busca se existe um TraceID no contexto (simplificado por agora)
+		// Em uma versão futura, usaríamos context values para propagar TraceID
+		
 		a.nexus.Publish(events.Event{
 			Type:    eventType,
 			Source:  a.id,
 			Payload: payload,
+			// Aqui no futuro propagaremos o TraceID do evento atual
 		})
 	}
 }
 
-// WithMemory associa um armazenamento de memória ao agente
-func (a *BaseAgent) WithMemory(s memory.Store) *BaseAgent {
-	a.memory = s
+// WithJournal associa um diário de bordo ao agente para rastreamento
+func (a *BaseAgent) WithJournal(j *observability.Journal) *BaseAgent {
+	a.journal = j
+	return a
+}
+
+// WithMemory associa a hierarquia de memória ao agente
+func (a *BaseAgent) WithMemory(h *memory.Hierarchy) *BaseAgent {
+	a.memory = h
 	return a
 }
 
 // Remember salva uma informação na memória persistente do agente
 func (a *BaseAgent) Remember(key string, value interface{}) error {
-	if a.memory == nil {
-		return fmt.Errorf("memória não configurada para o agente %s", a.id)
+	return a.RememberVersioned(key, value, -1)
+}
+
+// RememberVersioned salva com trava otimista (falha se a versão mudou)
+func (a *BaseAgent) RememberVersioned(key string, value interface{}, version int) error {
+	if a.memory == nil || a.memory.LongTerm == nil {
+		return fmt.Errorf("memória de longo prazo não configurada para o agente %s", a.id)
 	}
-	return a.memory.Save(a.id, key, value)
+	return a.memory.LongTerm.SaveVersioned(a.id, key, value, version)
 }
 
 // Recall recupera uma informação da memória do agente
 func (a *BaseAgent) Recall(key string) (interface{}, bool) {
-	if a.memory == nil {
-		return nil, false
+	val, _, ok := a.RecallVersioned(key)
+	return val, ok
+}
+
+// RecallVersioned recupera o valor e sua versão atual
+func (a *BaseAgent) RecallVersioned(key string) (interface{}, int, bool) {
+	if a.memory == nil || a.memory.LongTerm == nil {
+		return nil, 0, false
 	}
-	return a.memory.Get(a.id, key)
+	return a.memory.LongTerm.GetVersioned(a.id, key)
+}
+
+// WorkMemory salva um dado temporário na memória de trabalho (volátil)
+func (a *BaseAgent) WorkMemory(key string, value interface{}) {
+	if a.memory != nil {
+		a.memory.Working[key] = value
+	}
+}
+
+// Search busca na memória semântica (vetorial)
+func (a *BaseAgent) Search(ctx context.Context, query string, limit int) ([]memory.Document, error) {
+	if a.llm == nil || a.memory == nil || a.memory.Semantic == nil {
+		return nil, fmt.Errorf("LLM ou Memória Semântica não configurados")
+	}
+
+	vector, err := a.llm.Embed(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.memory.Semantic.Search(ctx, a.id, vector, limit)
+}
+
+// RecallEpisode busca na memória episódica (histórico de eventos)
+func (a *BaseAgent) RecallEpisode(traceID string) []events.Event {
+	if a.journal != nil {
+		return a.journal.GetTraceHistory(traceID)
+	}
+	return nil
 }
 
 // WithLLM associa um provedor de inteligência ao agente
 func (a *BaseAgent) WithLLM(p provider.LLMProvider) *BaseAgent {
 	a.llm = p
+	return a
+}
+
+// ConfigLLM define parâmetros finos de geração
+func (a *BaseAgent) ConfigLLM(temp float32, maxTokens int) *BaseAgent {
+	a.temperature = temp
+	a.maxTokens = maxTokens
 	return a
 }
 
@@ -181,10 +294,37 @@ func (a *BaseAgent) WithPreFetcher(t events.Type, f PreFetcherFunc) *BaseAgent {
 
 // Think executa uma chamada de inteligência síncrona respeitando a persona
 func (a *BaseAgent) Think(ctx context.Context, prompt string) (string, error) {
+	res, err := a.thinkRaw(ctx, prompt, "text")
+	if err != nil {
+		return "", err
+	}
+	return res.Content, err
+}
+
+// ThinkJSON executa uma chamada e mapeia o resultado para uma struct
+func (a *BaseAgent) ThinkJSON(ctx context.Context, prompt string, target interface{}) error {
+	res, err := a.thinkRaw(ctx, prompt, "json_object")
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal([]byte(res.Content), target)
+}
+
+func (a *BaseAgent) thinkRaw(ctx context.Context, prompt string, format string) (*provider.Result, error) {
+	a.setState(StateThinking)
+	defer a.setState(StateSleeping)
+
 	// Cria a função base de execução
 	execute := func(c context.Context, p string) (string, error) {
 		if a.llm == nil {
 			return "[Simulação: LLM não configurada]", nil
+		}
+
+		// Rastreamento do Pensamento
+		if a.journal != nil {
+			sid := a.journal.StartSpan("internal", "llm_predict", a.id)
+			defer a.journal.EndSpan(sid)
 		}
 
 		messages := []provider.Message{}
@@ -193,7 +333,15 @@ func (a *BaseAgent) Think(ctx context.Context, prompt string) (string, error) {
 		}
 		messages = append(messages, provider.Message{Role: "user", Content: p})
 
-		res, err := a.llm.Predict(c, messages)
+		config := &provider.LLMConfig{
+			Temperature:    a.temperature,
+			MaxTokens:      a.maxTokens,
+			TopP:           a.topP,
+			StopSequences:  a.stopSequences,
+			ResponseFormat: format,
+		}
+
+		res, err := a.llm.Predict(c, messages, config)
 		if err != nil {
 			return "", err
 		}
@@ -205,7 +353,12 @@ func (a *BaseAgent) Think(ctx context.Context, prompt string) (string, error) {
 		execute = a.middlewares[i](a, execute)
 	}
 
-	return execute(ctx, prompt)
+	resContent, err := execute(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	return &provider.Result{Content: resContent}, nil
 }
 
 // ThinkParallel executa múltiplos pensamentos simultaneamente usando Goroutines
@@ -333,6 +486,32 @@ func (a *BaseAgent) Do(toolName string, args string) (string, error) {
 		return "", fmt.Errorf("ferramenta %s não encontrada no agente %s", toolName, a.id)
 	}
 
-	fmt.Printf("🛠️  [Agente: %s] Executando ferramenta: %s\n", a.id, toolName)
+	if t.IsAsync {
+		fmt.Printf("⏳ [Agente: %s] Iniciando ferramenta ASSÍNCRONA: %s\n", a.id, toolName)
+		go func() {
+			a.setState(StateWaiting)
+			res, err := t.Execute(args)
+			a.setState(StateSleeping)
+
+			status := "success"
+			if err != nil {
+				status = "error"
+			}
+
+			a.Emit("TOOL_ASYNC_RESPONSE", map[string]interface{}{
+				"tool":    toolName,
+				"result":  res,
+				"error":   err,
+				"status":  status,
+				"payload": args,
+			})
+		}()
+		return "[PENDING: Ferramenta assíncrona iniciada. O resultado chegará via evento TOOL_ASYNC_RESPONSE]", nil
+	}
+
+	a.setState(StateWaiting)
+	defer a.setState(StateSleeping)
+
+	fmt.Printf("🛠️  [Agente: %s] Executando ferramenta SÍNCRONA: %s\n", a.id, toolName)
 	return t.Execute(args)
 }

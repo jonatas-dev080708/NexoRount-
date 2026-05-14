@@ -10,6 +10,7 @@ type Tool struct {
 	Description string
 	// Params é um exemplo do JSON schema esperado (pode ser evoluído)
 	Params      interface{}
+	IsAsync     bool
 	Execute     func(args string) (string, error)
 }
 

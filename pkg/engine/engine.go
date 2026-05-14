@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jonatas-dev080708/NexoRount-/pkg/events"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/observability"
 )
 
 // Agent define o contrato para uma entidade autônoma no ecossistema
@@ -23,23 +24,34 @@ type Engine struct {
 	agents map[string]Agent
 	mu     sync.RWMutex
 	wg     sync.WaitGroup
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx     context.Context
+	cancel  context.CancelFunc
+	journal *observability.Journal
+	kernel  *CognitiveKernel
 }
 
 func NewEngine() *Engine {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Engine{
-		nexus:  events.NewLocalNexus(),
-		agents: make(map[string]Agent),
-		ctx:    ctx,
-		cancel: cancel,
+		nexus:   events.NewLocalNexus(),
+		agents:  make(map[string]Agent),
+		ctx:     ctx,
+		cancel:  cancel,
+		journal: observability.NewJournal(),
+		kernel:  NewCognitiveKernel(100), // Default 100 global parallel thoughts
 	}
 }
 
 // WithBus permite injetar um barramento diferente (ex: NATS)
 func (e *Engine) WithBus(b events.Bus) *Engine {
 	e.nexus = b
+	return e
+}
+
+// WithRemoteBus ativa o modo híbrido, conectando o nexus local a um barramento remoto
+func (e *Engine) WithRemoteBus(remote events.Bus, types ...events.Type) *Engine {
+	bridge := events.NewBridge(e.nexus, remote)
+	bridge.Forward(types...)
 	return e
 }
 
@@ -52,6 +64,13 @@ func (e *Engine) Nexus() events.Bus {
 func (e *Engine) Register(a Agent) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	
+	// Injeta o Kernel e o Journal automaticamente se o agente for do tipo BaseAgent
+	if ba, ok := a.(*agent.BaseAgent); ok {
+		ba.WithJournal(e.journal)
+		ba.WithMiddleware(e.kernel.KernelMiddleware())
+	}
+
 	e.agents[a.ID()] = a
 }
 
@@ -77,9 +96,27 @@ func (e *Engine) Start() {
 	fmt.Println("✅ Todos os agentes estão em posição.")
 }
 
-// Publish expõe o Nexus para injeção de eventos externos
-func (e *Engine) Publish(event events.Event) {
+// Kernel retorna o acesso ao escalonador cognitivo
+func (e *Engine) Kernel() *CognitiveKernel {
+	return e.kernel
+}
+	// Se o evento não tiver TraceID, criamos um novo para iniciar a jornada
+	if event.TraceID == "" {
+		event.TraceID = fmt.Sprintf("trace-%d", time.Now().UnixNano())
+	}
+	if event.Timestamp == 0 {
+		event.Timestamp = time.Now().UnixNano()
+	}
+
+	// Registra no diário de bordo antes de publicar
+	e.journal.RecordEvent(event)
+	
 	e.nexus.Publish(event)
+}
+
+// Journal retorna o acesso ao histórico para inspeção e debugging
+func (e *Engine) Journal() *observability.Journal {
+	return e.journal
 }
 
 // Stop desliga todos os agentes graciosamente

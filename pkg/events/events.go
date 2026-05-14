@@ -10,11 +10,15 @@ type Type string
 
 // Event é a unidade fundamental de comunicação no ecossistema
 type Event struct {
-	Type     Type
-	Source   string
-	Payload  interface{}
-	ID       string
-	Metadata map[string]interface{}
+	ID        string                 `json:"id"`
+	Type      Type                   `json:"type"`
+	Source    string                 `json:"source"`
+	Payload   interface{}            `json:"payload"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	TraceID   string                 `json:"trace_id"`
+	ParentID  string                 `json:"parent_id"`
+	Timestamp int64                  `json:"timestamp"`
+	Priority  int                    `json:"priority"` // 0: Normal, 10: Urgent, 100: Emergency
 }
 
 // Handler é uma função que processa um evento de forma concorrente

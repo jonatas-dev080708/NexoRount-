@@ -37,8 +37,18 @@ func (p *GeminiProvider) Name() string {
 	return "Gemini:" + p.model
 }
 
-func (p *GeminiProvider) Predict(ctx context.Context, messages []Message) (*Result, error) {
+func (p *GeminiProvider) Predict(ctx context.Context, messages []Message, config *LLMConfig) (*Result, error) {
 	model := p.client.GenerativeModel(p.model)
+
+	if config != nil {
+		model.SetTemperature(config.Temperature)
+		model.SetMaxOutputTokens(int32(config.MaxTokens))
+		model.SetTopP(config.TopP)
+		model.StopSequences = config.StopSequences
+		if config.ResponseFormat == "json_object" {
+			model.ResponseMIMEType = "application/json"
+		}
+	}
 	
 	// Prepara o chat/contexto
 	var systemInstruction *genai.Content
@@ -96,8 +106,15 @@ func (p *GeminiProvider) Predict(ctx context.Context, messages []Message) (*Resu
 	}, nil
 }
 
-func (p *GeminiProvider) Stream(ctx context.Context, messages []Message) (chan string, error) {
+func (p *GeminiProvider) Stream(ctx context.Context, messages []Message, config *LLMConfig) (chan string, error) {
 	model := p.client.GenerativeModel(p.model)
+
+	if config != nil {
+		model.SetTemperature(config.Temperature)
+		model.SetMaxOutputTokens(int32(config.MaxTokens))
+		model.SetTopP(config.TopP)
+		model.StopSequences = config.StopSequences
+	}
 	
 	prompt := ""
 	if len(messages) > 0 {
