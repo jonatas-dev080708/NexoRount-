@@ -24,7 +24,12 @@ type BaseAgent struct {
 	memory   memory.Store
 	tools    *ToolManager
 	instructions string
+	middlewares  []ThinkMiddleware
+	preFetchers  map[events.Type][]PreFetcherFunc
 }
+
+type ThinkMiddleware func(a *BaseAgent, next func(context.Context, string) (string, error)) func(context.Context, string) (string, error)
+type PreFetcherFunc func(a *BaseAgent, ctx context.Context, e events.Event) (string, error)
 
 func New(id, category string) *BaseAgent {
 	return &BaseAgent{
@@ -32,6 +37,7 @@ func New(id, category string) *BaseAgent {
 		category: category,
 		handlers: make(map[events.Type]HandlerFunc),
 		tools:    NewToolManager(),
+		preFetchers: make(map[events.Type][]PreFetcherFunc),
 	}
 }
 
@@ -85,6 +91,32 @@ func (a *BaseAgent) safeExecute(ctx context.Context, handler HandlerFunc, ev eve
 			fmt.Printf("🚨 [ERRO CRÍTICO] Pânico no Agente [%s]: %v\n", a.id, r)
 		}
 	}()
+
+	// Executa Pre-fetchers em paralelo se existirem para este tipo de evento
+	a.mu.RLock()
+	fetchers := a.preFetchers[ev.Type]
+	a.mu.RUnlock()
+
+	if len(fetchers) > 0 {
+		var wg sync.WaitGroup
+		for _, f := range fetchers {
+			wg.Add(1)
+			go func(prefetch PreFetcherFunc) {
+				defer wg.Done()
+				res, err := prefetch(a, ctx, ev)
+				if err == nil && res != "" {
+					// Salva o resultado do prefetch no contexto ou memória temporária do evento
+					// Por simplicidade, vamos anexar ao Metadata do evento para que o handler use
+					if ev.Metadata == nil {
+						ev.Metadata = make(map[string]interface{})
+					}
+					ev.Metadata["prefetch_data"] = res
+				}
+			}(f)
+		}
+		wg.Wait()
+	}
+
 	handler(a, ctx, ev)
 }
 
@@ -133,23 +165,75 @@ func (a *BaseAgent) WithInstructions(instr string) *BaseAgent {
 	return a
 }
 
+// WithMiddleware adiciona um interceptor para chamadas de LLM
+func (a *BaseAgent) WithMiddleware(m ThinkMiddleware) *BaseAgent {
+	a.middlewares = append(a.middlewares, m)
+	return a
+}
+
+// WithPreFetcher registra uma função para preparar dados assim que um evento chega
+func (a *BaseAgent) WithPreFetcher(t events.Type, f PreFetcherFunc) *BaseAgent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.preFetchers[t] = append(a.preFetchers[t], f)
+	return a
+}
+
 // Think executa uma chamada de inteligência síncrona respeitando a persona
 func (a *BaseAgent) Think(ctx context.Context, prompt string) (string, error) {
-	if a.llm == nil {
-		return "[Simulação: LLM não configurada]", nil
+	// Cria a função base de execução
+	execute := func(c context.Context, p string) (string, error) {
+		if a.llm == nil {
+			return "[Simulação: LLM não configurada]", nil
+		}
+
+		messages := []provider.Message{}
+		if a.instructions != "" {
+			messages = append(messages, provider.Message{Role: "system", Content: a.instructions})
+		}
+		messages = append(messages, provider.Message{Role: "user", Content: p})
+
+		res, err := a.llm.Predict(c, messages)
+		if err != nil {
+			return "", err
+		}
+		return res.Content, nil
 	}
 
-	messages := []provider.Message{}
-	if a.instructions != "" {
-		messages = append(messages, provider.Message{Role: "system", Content: a.instructions})
+	// Aplica Middlewares (em ordem inversa para que o primeiro adicionado seja o mais externo)
+	for i := len(a.middlewares) - 1; i >= 0; i-- {
+		execute = a.middlewares[i](a, execute)
 	}
-	messages = append(messages, provider.Message{Role: "user", Content: prompt})
 
-	res, err := a.llm.Predict(ctx, messages)
-	if err != nil {
-		return "", err
+	return execute(ctx, prompt)
+}
+
+// ThinkParallel executa múltiplos pensamentos simultaneamente usando Goroutines
+func (a *BaseAgent) ThinkParallel(ctx context.Context, prompts []string) ([]string, error) {
+	results := make([]string, len(prompts))
+	errs := make([]error, len(prompts))
+	var wg sync.WaitGroup
+
+	for i, p := range prompts {
+		wg.Add(1)
+		go func(idx int, pr string) {
+			defer wg.Done()
+			res, err := a.Think(ctx, pr)
+			results[idx] = res
+			errs[idx] = err
+		}(i, p)
 	}
-	return res.Content, nil
+
+	wg.Wait()
+
+	// Retorna o primeiro erro encontrado, se houver
+	for _, err := range errs {
+		if err != nil {
+			return results, err
+		}
+	}
+
+	return results, nil
 }
 
 // StreamThink executa uma chamada de inteligência e emite tokens em tempo real no Nexus

@@ -26,6 +26,9 @@ A maioria dos frameworks atuais (LangChain, LangGraph) foi influenciada pelo mun
 - [x] **Streaming Nativo:** Tokens fluem pelo ecossistema como eventos em tempo real.
 - [x] **Hybrid Memory:** Persistência local (JSON) e semântica (PostgreSQL + pgvector).
 - [x] **Ação via Tools:** Sistema elegante para dar "mãos" aos seus agentes.
+- [x] **ThinkParallel:** API nativa para execução simultânea de múltiplos pensamentos.
+- [x] **Middlewares de IA:** Interceptores globais para segurança, log e cache.
+- [x] **Pre-fetching:** Enriquecimento automático de contexto antes da ativação do agente.
 
 ---
 
@@ -67,14 +70,61 @@ func main() {
 
 ---
 
+## 🧠 Superpoder: Multitarefa Interna (O Cérebro Paralelo)
+
+Diferente de frameworks baseados em grafos lineares, o NexoRount permite que um único agente execute múltiplas linhas de pensamento simultaneamente usando a concorrência nativa do Go.
+
+```go
+atendente.On("WPP_MESSAGE", func(a *agent.BaseAgent, ctx context.Context, e events.Event) {
+    // Dispara 3 pensamentos simultâneos no "subconsciente" do agente
+    resultados, _ := a.ThinkParallel(ctx, []string{
+        "Analise o histórico deste paciente",
+        "Busque protocolos clínicos relevantes",
+        "Verifique sinais de emergência",
+    })
+
+    // Consolida tudo e responde
+    resposta, _ := a.Think(ctx, "Com base nos resultados, responda ao paciente...")
+    a.Emit("RESPOSTA_FINAL", resposta)
+})
+```
+
+---
+
+## 🛠️ Recursos Avançados
+
+### 1. Middlewares (Observabilidade e Segurança)
+Adicione camadas de controle em todas as chamadas de IA.
+```go
+agente.WithMiddleware(func(a *agent.BaseAgent, next func(context.Context, string) (string, error)) func(context.Context, string) (string, error) {
+    return func(ctx context.Context, prompt string) (string, error) {
+        // Log, Validação ou Cache aqui
+        return next(ctx, prompt)
+    }
+})
+```
+
+### 2. Pre-fetchers (Otimização de Contexto)
+Prepare dados em paralelo assim que o evento chega ao Nexus.
+```go
+agente.WithPreFetcher("NEW_LEAD", func(a *agent.BaseAgent, ctx context.Context, e events.Event) (string, error) {
+    // Busca dados no CRM antes mesmo do agente 'acordar'
+    return "Dados do CRM: ...", nil
+})
+```
+
+---
+
 ## 🧩 Arquitetura: O Organismo Operacional
 
 No NexoRount, tudo gira em torno do **Nexus** (Nosso Sistema Nervoso). 
 
-1. **Agentes** observam o Nexus.
-2. Quando um **Evento** relevante aparece, o agente desperta.
-3. O agente **Pensa** (LLM), **Recorda** (Memory) e **Age** (Tools).
-4. O agente **Publica** o resultado de volta no Nexus, alimentando o ecossistema.
+1. **Eventos** são publicados no **Nexus**.
+2. **Pre-fetchers** enriquecem o evento com dados externos em paralelo.
+3. **Agentes** despertam e executam suas **Handlers** reativos.
+4. **ThinkParallel** permite múltiplos pensamentos simultâneos.
+5. **Middlewares** interceptam e validam a comunicação com a LLM.
+6. O agente **Publica** o resultado ou executa **Tools**, reiniciando o ciclo.
 
 ---
 
