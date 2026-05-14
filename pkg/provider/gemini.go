@@ -40,15 +40,43 @@ func (p *GeminiProvider) Name() string {
 func (p *GeminiProvider) Predict(ctx context.Context, messages []Message) (*Result, error) {
 	model := p.client.GenerativeModel(p.model)
 	
-	// Convertemos nosso formato universal para o formato do Gemini
-	// Para simplicidade inicial, enviamos a última mensagem como prompt
-	// e as anteriores como contexto se necessário (evoluiremos isso)
-	prompt := ""
-	if len(messages) > 0 {
-		prompt = messages[len(messages)-1].Content
+	// Prepara o chat/contexto
+	var systemInstruction *genai.Content
+	var history []*genai.Content
+
+	for _, m := range messages {
+		if m.Role == "system" {
+			systemInstruction = &genai.Content{
+				Parts: []genai.Part{genai.Text(m.Content)},
+			}
+		} else {
+			role := "user"
+			if m.Role == "assistant" || m.Role == "model" {
+				role = "model"
+			}
+			history = append(history, &genai.Content{
+				Role:  role,
+				Parts: []genai.Part{genai.Text(m.Content)},
+			})
+		}
 	}
 
-	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+	if systemInstruction != nil {
+		model.SystemInstruction = systemInstruction
+	}
+
+	// Pega a última mensagem como o prompt atual e remove do histórico
+	if len(history) == 0 {
+		return nil, errors.New("nenhuma mensagem enviada")
+	}
+	
+	lastMsg := history[len(history)-1]
+	history = history[:len(history)-1]
+
+	chat := model.StartChat()
+	chat.History = history
+
+	resp, err := chat.SendMessage(ctx, lastMsg.Parts...)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +92,7 @@ func (p *GeminiProvider) Predict(ctx context.Context, messages []Message) (*Resu
 
 	return &Result{
 		Content: content,
-		Tokens:  0, // Gemini SDK Go não expõe tokens de forma trivial no GenerateContent simples
+		Tokens:  0,
 	}, nil
 }
 

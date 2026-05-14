@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/autonome-ecosystem/framework/pkg/events"
-	"github.com/autonome-ecosystem/framework/pkg/memory"
-	"github.com/autonome-ecosystem/framework/pkg/provider"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/events"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/memory"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/provider"
 )
 
 // HandlerFunc define a assinatura para processar eventos. Agora recebe o agente como primeiro parâmetro.

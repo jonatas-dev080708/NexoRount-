@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/autonome-ecosystem/framework/pkg/events"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/events"
 )
 
 // Agent define o contrato para uma entidade autônoma no ecossistema
@@ -41,6 +41,11 @@ func NewEngine() *Engine {
 func (e *Engine) WithBus(b events.Bus) *Engine {
 	e.nexus = b
 	return e
+}
+
+// Nexus expõe o barramento de eventos para assinaturas externas
+func (e *Engine) Nexus() events.Bus {
+	return e.nexus
 }
 
 // Register adiciona um agente ao ecossistema

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jonatas-dev080708/NexoRount/pkg/agent"
-	"github.com/jonatas-dev080708/NexoRount/pkg/engine"
-	"github.com/jonatas-dev080708/NexoRount/pkg/events"
-	"github.com/jonatas-dev080708/NexoRount/pkg/provider"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/agent"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/engine"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/events"
+	"github.com/jonatas-dev080708/NexoRount-/pkg/provider"
 )
 
 func main() {
