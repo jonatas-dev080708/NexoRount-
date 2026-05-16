@@ -30,7 +30,7 @@ func (p *GenericOpenAIProvider) Name() string {
 	return p.name
 }
 
-func (p *GenericOpenAIProvider) Predict(ctx context.Context, messages []Message) (*Result, error) {
+func (p *GenericOpenAIProvider) Predict(ctx context.Context, messages []Message, config *LLMConfig) (*Result, error) {
 	oaMessages := make([]openai.ChatCompletionMessage, len(messages))
 	for i, m := range messages {
 		oaMessages[i] = openai.ChatCompletionMessage{
@@ -39,10 +39,24 @@ func (p *GenericOpenAIProvider) Predict(ctx context.Context, messages []Message)
 		}
 	}
 
-	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	req := openai.ChatCompletionRequest{
 		Model:    p.model,
 		Messages: oaMessages,
-	})
+	}
+
+	if config != nil {
+		req.Temperature = config.Temperature
+		req.MaxTokens = config.MaxTokens
+		req.TopP = config.TopP
+		req.Stop = config.StopSequences
+		if config.ResponseFormat == "json_object" {
+			req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+				Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+			}
+		}
+	}
+
+	resp, err := p.client.CreateChatCompletion(ctx, req)
 
 	if err != nil {
 		return nil, err
@@ -54,7 +68,7 @@ func (p *GenericOpenAIProvider) Predict(ctx context.Context, messages []Message)
 	}, nil
 }
 
-func (p *GenericOpenAIProvider) Stream(ctx context.Context, messages []Message) (chan string, error) {
+func (p *GenericOpenAIProvider) Stream(ctx context.Context, messages []Message, config *LLMConfig) (chan string, error) {
 	oaMessages := make([]openai.ChatCompletionMessage, len(messages))
 	for i, m := range messages {
 		oaMessages[i] = openai.ChatCompletionMessage{
@@ -63,11 +77,20 @@ func (p *GenericOpenAIProvider) Stream(ctx context.Context, messages []Message) 
 		}
 	}
 
-	stream, err := p.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
+	req := openai.ChatCompletionRequest{
 		Model:    p.model,
 		Messages: oaMessages,
 		Stream:   true,
-	})
+	}
+
+	if config != nil {
+		req.Temperature = config.Temperature
+		req.MaxTokens = config.MaxTokens
+		req.TopP = config.TopP
+		req.Stop = config.StopSequences
+	}
+
+	stream, err := p.client.CreateChatCompletionStream(ctx, req)
 
 	if err != nil {
 		return nil, err

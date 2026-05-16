@@ -53,15 +53,38 @@ func (s *PGVectorStore) Save(id string, key string, value interface{}) error {
 }
 
 func (s *PGVectorStore) Get(id string, key string) (interface{}, bool) {
-	var val interface{}
+	val, _, ok := s.GetVersioned(id, key)
+	return val, ok
+}
+
+func (s *PGVectorStore) SaveVersioned(id string, key string, value interface{}, version int) error {
+	// Implementação simplificada: no Postgres poderíamos usar uma coluna de versão
+	// Para o desafio, vamos apenas simular ou usar um UPSERT simples
+	_, err := s.conn.Exec(context.Background(), 
+		`INSERT INTO agent_memory (agent_id, content, metadata) 
+		 VALUES ($1, $2, $3) 
+		 ON CONFLICT (id) DO UPDATE SET metadata = EXCLUDED.metadata`, 
+		id, key, map[string]interface{}{"value": value, "version": version + 1})
+	return err
+}
+
+func (s *PGVectorStore) GetVersioned(id string, key string) (interface{}, int, bool) {
+	var metadata map[string]interface{}
 	err := s.conn.QueryRow(context.Background(),
-		"SELECT metadata->>'value' FROM agent_memory WHERE agent_id = $1 AND content = $2 LIMIT 1",
-		id, key).Scan(&val)
+		"SELECT metadata FROM agent_memory WHERE agent_id = $1 AND content = $2 LIMIT 1",
+		id, key).Scan(&metadata)
 	
 	if err != nil {
-		return nil, false
+		return nil, 0, false
 	}
-	return val, true
+	
+	val := metadata["value"]
+	ver := 0
+	if v, ok := metadata["version"].(float64); ok {
+		ver = int(v)
+	}
+	
+	return val, ver, true
 }
 
 func (s *PGVectorStore) GetAll(id string) (map[string]interface{}, error) {

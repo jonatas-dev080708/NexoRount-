@@ -18,7 +18,10 @@
 11. [Padrões Avançados (Enterprise Patterns)](#-padrões-avançados)
 12. [Performance e Escalabilidade](#-performance-e-escalabilidade)
 13. [Solução de Problemas (Troubleshooting)](#-solução-de-problemas)
-14. [Contribuição e Roadmap](#-contribuição-e-roadmap)
+14. [NexoDashboard (Fase 5)](#-observabilidade-pkgobservability)
+15. [Checkpoints e Durabilidade (Persistent Nexus)](#-checkpoints-e-durabilidade)
+16. [Sintaxe Moderna e DX (Fluent API & Generics)](#-sintaxe-moderna-e-dx)
+17. [Evolução e Roadmap](#-contribuição-e-roadmap)
 
 ---
 
@@ -69,7 +72,7 @@ O sistema de memória segue o modelo biológico:
 
 ### Instalando o Framework
 ```bash
-go get github.com/jonatas-dev080708/NexoRount
+go get github.com/jonatas-dev080708/NexoRount-
 ```
 
 ### Configuração Inicial
@@ -98,6 +101,16 @@ O registro de comportamento é declarativo:
 ```go
 meuAgente.On("TIPO_DE_EVENTO", func(a *BaseAgent, ctx context.Context, e Event) {
     // Reação lógica
+})
+```
+
+### ⚡ Novo: Bind Genérico (Safe Typing)
+Elimine o `interface{}` e use tipos fortes para seus eventos:
+```go
+type Lead struct { Nome string }
+
+agent.Bind(meuAgente, "NEW_LEAD", func(a *BaseAgent, ctx context.Context, p Lead) {
+    fmt.Println(p.Nome) // Tipagem garantida pelo compilador
 })
 ```
 
@@ -131,6 +144,14 @@ type Bus interface {
 ### LocalNexus vs NATSNexus
 - **Local:** Usa `channels` do Go. É imbatível em velocidade para aplicações single-binary.
 - **NATS:** Usa `JetStream` para persistência e distribuição. Ideal para arquiteturas de microsserviços.
+
+### 💾 Novo: Persistent Nexus (Checkpoints Estilo LangGraph)
+O NexoRount agora possui durabilidade nativa de eventos. Se o processo cair, os eventos não processados são restaurados automaticamente.
+```go
+engine.NewEngine().
+    WithPersistence("backlog.db"). // Usa SQLite para imortalidade de eventos
+    Start()
+```
 
 ### O Bridge Híbrido
 O `Bridge` permite conectar dois barramentos. Imagine um agente rodando em uma Raspberry Pi (Edge) que se conecta via Bridge ao Nexus principal rodando na Cloud.
@@ -264,6 +285,16 @@ Crie agentes invisíveis que monitoram o Nexus em busca de anomalias. Ou use o m
 ```go
 agente.WithMiddleware(agent.SafetyMiddleware()) // Protege contra injeção e PII
 ```
+
+### 🧬 Novo: Blueprints Reativos (Deep Reasoning)
+Padrões de raciocínio que operam de forma puramente assíncrona:
+- **`WithReactiveReAct()`**: Loop de pensamento/ferramenta que libera a Goroutine durante a espera.
+- **`WithReactiveToT(5)`**: Exploração concorrente de 5 ramos de pensamento (Tree of Thoughts).
+- **`WithReactiveSupervisor()`**: Delegação de tarefas para sub-agentes via eventos.
+
+### 🩹 Novo: Self-Healing & Budgeting
+- **Self-Healing:** O agente detecta erros de ferramentas e tenta se auto-corrigir re-analisando a falha.
+- **Budgeting:** Define um teto de tokens. Se exceder, o sistema emite um sinal de veto, protegendo seu faturamento.
 
 ### Resiliência Total (LLM Fallback)
 Nunca fique na mão se um provedor falhar.
@@ -409,6 +440,23 @@ Em nossos testes internos em um servidor Standard (4 vCPUs, 8GB RAM):
 - **Memory Overhead:** Aproximadamente 1.2MB por agente em repouso.
 
 ---
+
+---
+
+## 🏛️ 19. Sintaxe Moderna e DX (The Fluent API)
+
+Para tornar o desenvolvimento "gostoso", o NexoRount agora suporta encadeamento total de capacidades. Veja um agente configurado com 100% dos recursos:
+
+```go
+sdr := agent.New("sdr-01", "SDR").
+    WithClaude("claude-3-5-sonnet"). // Atalho para provedor
+    WithInstructions("Venda o produto X.").
+    WithPostgresMemory(ctx, dsn).    // RAG nativo
+    WithReactiveReAct().             // Deep reasoning
+    WithSelfHealing().               // Auto-correção
+    WithMemoryConsolidation().       // Aprendizado orgânico
+    WithBudget(10000, budgetManager) // Controle de custo
+```
 
 **NexoRount: Porque a inteligência não deveria ser um grafo, mas um organismo.** 🚀
 

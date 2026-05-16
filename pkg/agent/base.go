@@ -51,6 +51,8 @@ type BaseAgent struct {
 type ThinkMiddleware func(a *BaseAgent, next func(context.Context, string) (string, error)) func(context.Context, string) (string, error)
 type PreFetcherFunc func(a *BaseAgent, ctx context.Context, e events.Event) (string, error)
 
+// New cria uma nova instância de BaseAgent.
+// O ID deve ser único no ecossistema e a categoria ajuda na organização e filtragem.
 func New(id, category string) *BaseAgent {
 	return &BaseAgent{
 		id:          id,
@@ -62,6 +64,7 @@ func New(id, category string) *BaseAgent {
 	}
 }
 
+// Status retorna o estado atual do agente (thinking, sleeping, blocked, etc).
 func (a *BaseAgent) Status() State {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -90,6 +93,99 @@ func (a *BaseAgent) On(eventType events.Type, handler HandlerFunc) *BaseAgent {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.handlers[eventType] = handler
+	return a
+}
+
+// Fluent API Extensions
+
+// WithReactiveReAct ativa o padrão Reasoning + Acting via eventos assíncronos.
+// Recomendado para tarefas complexas que exigem uso de ferramentas e raciocínio multi-etapa.
+func (a *BaseAgent) WithReactiveReAct() *BaseAgent {
+	EnableReactiveReAct(a)
+	return a
+}
+
+// WithReactiveToT ativa a exploração paralela de múltiplos caminhos de raciocínio.
+// O parâmetro branches define quantos caminhos simultâneos o agente deve explorar.
+func (a *BaseAgent) WithReactiveToT(branches int) *BaseAgent {
+	EnableReactiveToT(a, branches)
+	return a
+}
+
+// WithSelfHealing permite que o agente aprenda com erros de ferramentas e tente corrigi-los automaticamente.
+func (a *BaseAgent) WithSelfHealing() *BaseAgent {
+	EnableSelfHealing(a)
+	return a
+}
+
+// WithMemoryConsolidation ativa um processo em background que sumariza e indexa aprendizados no Vector Store.
+func (a *BaseAgent) WithMemoryConsolidation() *BaseAgent {
+	EnableMemoryConsolidation(a)
+	return a
+}
+
+// WithBudget define um teto de gastos de tokens para o agente, agindo como um disjuntor de segurança.
+func (a *BaseAgent) WithBudget(tokens int, manager *BudgetManager) *BaseAgent {
+	manager.SetBudget(a.id, tokens)
+	EnableReactiveBudgeting(a, manager)
+	return a
+}
+
+// WithInstructions define o prompt de sistema (personalidade e regras) do agente.
+func (a *BaseAgent) WithInstructions(instr string) *BaseAgent {
+	a.instructions = instr
+	return a
+}
+
+// WithLLM associa um provedor de inteligência (OpenAI, Gemini, Claude) ao agente.
+func (B *BaseAgent) WithLLM(llm provider.LLMProvider) *BaseAgent {
+	B.llm = llm
+	return B
+}
+
+// WithTool registra uma ferramenta que o agente pode utilizar durante o raciocínio.
+func (a *BaseAgent) WithTool(t *Tool) *BaseAgent {
+	a.tools.Register(t)
+	return a
+}
+
+// Provedores Rápidos (Sintaxe Simplificada)
+
+func (a *BaseAgent) WithClaude(model string) *BaseAgent {
+	p, _ := provider.NewAnthropicProvider(model)
+	a.llm = p
+	return a
+}
+
+func (a *BaseAgent) WithOpenAI(model string) *BaseAgent {
+	p, _ := provider.NewOpenAIProvider(model)
+	a.llm = p
+	return a
+}
+
+func (a *BaseAgent) WithGemini(ctx context.Context, model string) *BaseAgent {
+	p, _ := provider.NewGeminiProvider(ctx, model)
+	a.llm = p
+	return a
+}
+
+func (a *BaseAgent) WithGroq(model string) *BaseAgent {
+	p, _ := provider.NewGroqProvider(model)
+	a.llm = p
+	return a
+}
+
+// Configuração de Memória
+
+// WithPostgresMemory conecta o agente ao PostgreSQL com suporte a PGVector.
+// Isso habilita memória semântica e persistência de longo prazo.
+func (a *BaseAgent) WithPostgresMemory(ctx context.Context, dsn string) *BaseAgent {
+	store, err := memory.NewPGVectorStore(ctx, dsn)
+	if err != nil {
+		fmt.Printf("❌ Erro ao configurar PGVector: %v\n", err)
+		return a
+	}
+	a.memory = memory.NewHierarchy(nil, nil, store)
 	return a
 }
 
@@ -341,10 +437,20 @@ func (a *BaseAgent) thinkRaw(ctx context.Context, prompt string, format string) 
 			ResponseFormat: format,
 		}
 
+		// Emite evento de início de predição para Budgeting e Observabilidade
+		a.Emit("LLM_PREDICT_START", nil)
+
 		res, err := a.llm.Predict(c, messages, config)
 		if err != nil {
 			return "", err
 		}
+
+		// Emite evento de fim de predição com contagem de tokens
+		a.Emit("LLM_PREDICT_END", map[string]interface{}{
+			"tokens": res.Tokens,
+			"model":  a.llm.Name(),
+		})
+
 		return res.Content, nil
 	}
 
@@ -401,7 +507,10 @@ func (a *BaseAgent) StreamThink(ctx context.Context, prompt string) (chan string
 	}
 	messages = append(messages, provider.Message{Role: "user", Content: prompt})
 
-	tokenChan, err := a.llm.Stream(ctx, messages)
+	tokenChan, err := a.llm.Stream(ctx, messages, &provider.LLMConfig{
+		Temperature: a.temperature,
+		MaxTokens:   a.maxTokens,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -449,29 +558,13 @@ func (a *BaseAgent) Learn(ctx context.Context, content string, metadata map[stri
 		return err
 	}
 
-	// Tentamos fazer o cast para PGVectorStore se disponível
-	if vStore, ok := a.memory.(*memory.PGVectorStore); ok {
-		return vStore.SaveVector(ctx, a.id, content, vector, metadata)
+	// Usamos a memória semântica se disponível
+	if a.memory.Semantic != nil {
+		return a.memory.Semantic.SaveVector(ctx, a.id, content, vector, metadata)
 	}
 	return fmt.Errorf("o armazenamento atual não suporta busca vetorial")
 }
 
-// Search busca informações semanticamente similares na memória do agente
-func (a *BaseAgent) Search(ctx context.Context, query string, limit int) ([]memory.Document, error) {
-	if a.llm == nil || a.memory == nil {
-		return nil, fmt.Errorf("LLM ou Memória não configurados")
-	}
-
-	vector, err := a.llm.Embed(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	if vStore, ok := a.memory.(*memory.PGVectorStore); ok {
-		return vStore.Search(ctx, a.id, vector, limit)
-	}
-	return nil, fmt.Errorf("o armazenamento atual não suporta busca vetorial")
-}
 
 // WithTool registra uma ferramenta que o agente pode usar
 func (a *BaseAgent) WithTool(t *Tool) *BaseAgent {
