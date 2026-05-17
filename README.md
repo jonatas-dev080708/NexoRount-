@@ -225,9 +225,11 @@ O NexoRount trata o streaming de tokens como eventos no Nexus. Outros agentes po
 
 ---
 
-## 🚀 10. Tutorial: Criando seu Primeiro Agente Multitarefa
+## 🚀 10. Tutorial: Criando seu Primeiro Agente (Declarativo & Reativo)
 
-Neste tutorial, vamos construir um **Agente de Atendimento Médico** que faz triagem, consulta protocolos e verifica segurança simultaneamente.
+No NexoRount, acreditamos que o código do desenvolvedor deve focar na **intenção, comportamento e regras de negócio**, e não na infraestrutura ou fluxo procedural ("callback hell"). O framework cuida de toda a orquestração assíncrona nos bastidores.
+
+Neste tutorial, vamos construir um **Agente de Triagem Médica** completo em pouquíssimas linhas de código limpo.
 
 ### Passo 1: Configuração do Engine
 ```go
@@ -235,41 +237,55 @@ runtime := engine.NewEngine()
 provider, _ := provider.NewGeminiProvider("gemini-1.5-flash")
 ```
 
-### Passo 2: Definindo o Agente
+### Passo 2: Inicializando a Ferramenta (Tool)
+As ferramentas em Go no NexoRount são seguras e tipadas:
+```go
+buscaTool := &agent.Tool{
+    Name:        "buscar_sintomas",
+    Description: "Busca protocolos médicos oficiais na internet. O parâmetro deve ser o termo de pesquisa.",
+    Execute: func(sintoma string) (string, error) {
+        // Lógica de busca rápida no banco de protocolos ou Tavily
+        return "Protocolo A1: Descanso, hidratação e monitorar temperatura.", nil
+    },
+}
+```
+
+### Passo 3: Construindo o Agente de Forma Declarativa (Código Elegante)
+Em vez de escrever loops e callbacks procedurais complexos (com `if err != nil` cortando o fluxo), nós declaramos as capacidades do agente encadeadas de forma fluente:
+
 ```go
 atendente := agent.New("medico-bot", "SAUDE").
     WithLLM(provider).
-    WithInstructions("Você é um atendente de triagem médica.")
+    WithInstructions("Você é um atendente de triagem médica experiente. Use a ferramenta 'buscar_sintomas' se necessário.").
+    WithTool(buscaTool).
+    WithReactiveReAct() // ✨ Ativa o loop cognitivo autônomo (Planejar -> Agir -> Responder)
 ```
 
-### Passo 3: Implementando a Multitarefa
+Pronto! Sem nenhum callback procedural ou coerção manual de tipo, o agente já está pronto para escutar o barramento do Nexus, tomar decisões baseadas em sintomas e emitir o diagnóstico.
+
+### Passo 4: Rodando o Ecossistema
+Basta registrar o agente e iniciar o motor reativo:
 ```go
-atendente.On("MENSAGEM_PACIENTE", func(a *BaseAgent, ctx context.Context, e Event) {
-    msg := e.Payload.(string)
-    
-    // Dispara 3 linhas de pensamento paralelas
-    reflexoes, _ := a.ThinkParallel(ctx, []string{
-        "Quais são os sinais vitais mencionados?",
-        "Consulte protocolos para estes sintomas.",
-        "Existe risco de vida imediato?",
-    })
-    
-    // Sintetiza e responde
-    conclusao, _ := a.Think(ctx, "Sintetize estes dados: " + strings.Join(reflexoes, " | "))
-    a.Emit("RESPOSTA_WPP", conclusao)
+runtime.Register(atendente)
+runtime.Start()
+
+// O agente despertará automaticamente ao ouvir um evento compatível!
+runtime.Nexus().Publish(events.Event{
+    Type:    "NEED_RESEARCH", // Evento de gatilho que ativa o ReAct do agente
+    Payload: "Estou com febre de 38°C e dor de cabeça há 2 dias. O que devo fazer?",
 })
 ```
 
 ### 10.4 Saída Estruturada (ThinkJSON)
-Para automações que exigem dados tipados, use o `ThinkJSON`.
+Para automações que exigem dados tipados, use o `ThinkJSON` de forma direta:
 ```go
-type LeadScore struct {
-    Score int    `json:"score"`
-    Setor string `json:"setor"`
+type Triagem struct {
+    Prioridade string `json:"prioridade"` // "ALTA", "MEDIA", "BAIXA"
+    Motivo     string `json:"motivo"`
 }
 
-var result LeadScore
-err := a.ThinkJSON(ctx, "Analise este lead: "+msg, &result)
+var resultado Triagem
+err := a.ThinkJSON(ctx, "Consolide a triagem do paciente em JSON: "+msg, &resultado)
 // O framework força o JSON e faz o Unmarshal automaticamente.
 ```
 
