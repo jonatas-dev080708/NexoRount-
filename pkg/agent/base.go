@@ -175,6 +175,13 @@ func (a *BaseAgent) WithGroq(model string) *BaseAgent {
 	return a
 }
 
+func (a *BaseAgent) WithMaritaca(model string) *BaseAgent {
+	p, _ := provider.NewMaritacaProvider(model)
+	a.llm = p
+	return a
+}
+
+
 // Configuração de Memória
 
 // WithPostgresMemory conecta o agente ao PostgreSQL com suporte a PGVector.
