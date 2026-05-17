@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/jonatas-dev080708/NexoRount-/pkg/events"
-	"github.com/jonatas-dev080708/NexoRount-/pkg/provider"
 )
 
 // EnableMemoryConsolidation cria um processo que observa o Nexus e salva aprendizados

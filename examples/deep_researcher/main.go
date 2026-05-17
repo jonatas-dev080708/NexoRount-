@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/jonatas-dev080708/NexoRount-/pkg/agent"
 	"github.com/jonatas-dev080708/NexoRount-/pkg/engine"

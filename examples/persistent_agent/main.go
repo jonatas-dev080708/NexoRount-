@@ -23,7 +23,7 @@ func main() {
 
 	// 2. Agente que reconhece usuários
 	greeter := agent.New("greeter-01", "ASSISTANT").
-		WithMemory(store).
+		WithMemory(memory.NewHierarchy(nil, store, nil)).
 		On("USER_HELLO", func(a *agent.BaseAgent, ctx context.Context, e events.Event) {
 			userName := fmt.Sprintf("%v", e.Payload)
 

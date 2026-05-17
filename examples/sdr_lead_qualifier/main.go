@@ -74,7 +74,7 @@ func main() {
 			// Consolidando as reflexões em um objeto JSON tipado
 			fmt.Println("📊 [SDR] Consolidando qualificação estruturada (ThinkJSON)...")
 			var qual LeadQualification
-			promptQual := fmt.Printf("Com base nessas reflexões: %v, qualifique o lead: %s", reflexoes, leadMsg)
+			promptQual := fmt.Sprintf("Com base nessas reflexões: %v, qualifique o lead: %s", reflexoes, leadMsg)
 			
 			// MockProvider retornará um JSON válido se format=json_object for passado (simulado)
 			_ = a.ThinkJSON(ctx, fmt.Sprintf("Consolide a qualificação em JSON: %s", promptQual), &qual)

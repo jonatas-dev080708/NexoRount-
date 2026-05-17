@@ -125,7 +125,7 @@ func (a *BaseAgent) WithMemoryConsolidation() *BaseAgent {
 }
 
 // WithBudget define um teto de gastos de tokens para o agente, agindo como um disjuntor de segurança.
-func (a *BaseAgent) WithBudget(tokens int, manager *BudgetManager) *BaseAgent {
+func (a *BaseAgent) WithBudget(tokens int, manager *ReactiveBudgetManager) *BaseAgent {
 	manager.SetBudget(a.id, tokens)
 	EnableReactiveBudgeting(a, manager)
 	return a
@@ -362,22 +362,10 @@ func (a *BaseAgent) RecallEpisode(traceID string) []events.Event {
 	return nil
 }
 
-// WithLLM associa um provedor de inteligência ao agente
-func (a *BaseAgent) WithLLM(p provider.LLMProvider) *BaseAgent {
-	a.llm = p
-	return a
-}
-
 // ConfigLLM define parâmetros finos de geração
 func (a *BaseAgent) ConfigLLM(temp float32, maxTokens int) *BaseAgent {
 	a.temperature = temp
 	a.maxTokens = maxTokens
-	return a
-}
-
-// WithInstructions define a persona e o comportamento base do agente (System Prompt)
-func (a *BaseAgent) WithInstructions(instr string) *BaseAgent {
-	a.instructions = instr
 	return a
 }
 
@@ -572,12 +560,6 @@ func (a *BaseAgent) Learn(ctx context.Context, content string, metadata map[stri
 	return fmt.Errorf("o armazenamento atual não suporta busca vetorial")
 }
 
-
-// WithTool registra uma ferramenta que o agente pode usar
-func (a *BaseAgent) WithTool(t *Tool) *BaseAgent {
-	a.tools.Register(t)
-	return a
-}
 
 // Do executa uma ferramenta pelo nome de forma simples
 func (a *BaseAgent) Do(toolName string, args string) (string, error) {

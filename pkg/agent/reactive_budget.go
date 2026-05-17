@@ -7,24 +7,24 @@ import (
 	"github.com/jonatas-dev080708/NexoRount-/pkg/events"
 )
 
-// BudgetManager controla o gasto de tokens via eventos
-type BudgetManager struct {
+// ReactiveBudgetManager controla o gasto de tokens via eventos
+type ReactiveBudgetManager struct {
 	mu      sync.Mutex
 	budgets map[string]int // agentID -> remainingTokens
 }
 
-func NewBudgetManager() *BudgetManager {
-	return &BudgetManager{budgets: make(map[string]int)}
+func NewReactiveBudgetManager() *ReactiveBudgetManager {
+	return &ReactiveBudgetManager{budgets: make(map[string]int)}
 }
 
-func (bm *BudgetManager) SetBudget(agentID string, tokens int) {
+func (bm *ReactiveBudgetManager) SetBudget(agentID string, tokens int) {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
 	bm.budgets[agentID] = tokens
 }
 
 // EnableReactiveBudgeting ativa o controle de custos no Nexus
-func EnableReactiveBudgeting(a *BaseAgent, manager *BudgetManager) {
+func EnableReactiveBudgeting(a *BaseAgent, manager *ReactiveBudgetManager) {
 	
 	// Ouve o início de qualquer predição
 	a.On("LLM_PREDICT_START", func(agent *BaseAgent, ctx context.Context, e events.Event) {

@@ -8,8 +8,6 @@ import (
 
 // ThinkReAct implementa o padrão Reasoning + Acting (ReAct)
 func (a *BaseAgent) ThinkReAct(ctx context.Context, prompt string, maxSteps int) (string, error) {
-	currentPrompt := prompt
-	
 	// Adiciona instruções de ReAct se não estiverem presentes
 	reactInstructions := `
 	Use o seguinte formato para resolver o problema:

@@ -134,20 +134,33 @@ func (e *Engine) Start() {
 	}
 
 	// Listener para criação dinâmica de agentes via Nexus
-	e.nexus.Subscribe("SPAWN_AGENT", func(event events.Event) {
-		data := event.Payload.(map[string]interface{})
-		id := data["id"].(string)
-		role := data["role"].(string)
-		
-		fmt.Printf("🏗️  [Engine] Criando novo agente dinâmico: %s (%s)\n", id, role)
-		
-		newAgent := agent.New(id, role)
-		if inst, ok := data["instructions"].(string); ok {
-			newAgent.WithInstructions(inst)
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		ch := e.nexus.Subscribe("SPAWN_AGENT")
+		for {
+			select {
+			case <-e.ctx.Done():
+				return
+			case event, ok := <-ch:
+				if !ok {
+					return
+				}
+				data := event.Payload.(map[string]interface{})
+				id := data["id"].(string)
+				role := data["role"].(string)
+				
+				fmt.Printf("🏗️  [Engine] Criando novo agente dinâmico: %s (%s)\n", id, role)
+				
+				newAgent := agent.New(id, role)
+				if inst, ok := data["instructions"].(string); ok {
+					newAgent.WithInstructions(inst)
+				}
+				
+				e.Spawn(newAgent)
+			}
 		}
-		
-		e.Spawn(newAgent)
-	})
+	}()
 
 	fmt.Println("✅ Todos os agentes estão em posição.")
 }
