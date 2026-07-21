@@ -448,18 +448,7 @@ Implementar isso permite que seu modelo se beneficie automaticamente de todos os
 
 ---
 
-## 📈 18. Benchmark e Métricas de Performance
-
-Em nossos testes internos em um servidor Standard (4 vCPUs, 8GB RAM):
-- **Event Latency:** < 500 microsegundos (LocalNexus).
-- **Concurrent Agents:** 50,000 agentes ativos sem degradação de performance do Nexus.
-- **Memory Overhead:** Aproximadamente 1.2MB por agente em repouso.
-
----
-
----
-
-## 🏛️ 19. Sintaxe Moderna e DX (The Fluent API)
+## 🏛️ 18. Sintaxe Moderna e DX (The Fluent API)
 
 Para tornar o desenvolvimento "gostoso", o NexoRount agora suporta encadeamento total de capacidades. Veja um agente configurado com 100% dos recursos:
 
